@@ -66,11 +66,8 @@ def main_menu():
             console.print(f"[{idx}] {emoji} [bold cyan]{name}[/] ({desc})")
             choices.append(str(idx))
         
-        console.print("\n[Enter] Quit")
-        choices.append("q")
-        choices.append("Q")
         choices.append("") # Allow empty input
-
+        console.print("\n[Enter] Quit")
         choice = Prompt.ask("Select Option", choices=choices, default="q", show_default=False)
 
         if choice.lower() == "q":

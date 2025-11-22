@@ -451,7 +451,7 @@ def main():
     # Fetch top packages once on load
     top_data = []
     with console.status("Loading Brew Manager..."):
-        top_data = get_top_packages_data(5)
+        top_data = get_top_packages_data(10)
 
     while True:
         console.clear()

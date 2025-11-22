@@ -78,9 +78,9 @@ def main_menu() -> None:
             choices.append(str(idx))
         
         choices.append("q")
-        console.print("\n[Q] Quit")
+        console.print("\n[Enter] Quit")
         
-        choice = Prompt.ask("Select Option", choices=choices, default="q", show_default=False)
+        choice = Prompt.ask("Select Option", choices=choices, default="q", show_default=False, show_choices=False)
 
         if choice.lower() == "q":
             console.print("[green]Goodbye![/]")

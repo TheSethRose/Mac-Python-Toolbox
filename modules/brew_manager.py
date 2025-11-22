@@ -115,9 +115,11 @@ def get_beta_metadata(beta_names: List[str]) -> Dict[str, Any]:
     except json.JSONDecodeError: 
         return {}
 
-def parse_item(item: Dict[str, Any], item_type: str) -> Tuple[str, str, str]:
-    """Extract name, local version, and latest version from item dict."""
+def parse_item(item: Dict[str, Any], item_type: str) -> Tuple[str, str, str, bool]:
+    """Extract name, local version, latest version, and outdated status."""
     name = item.get('token') or item.get('name') or "Unknown"
+    is_outdated = item.get('outdated', False)
+
     if item_type == 'cask':
         local = item.get('installed', "N/A")
         latest = item.get('version', "Unknown")
@@ -125,7 +127,7 @@ def parse_item(item: Dict[str, Any], item_type: str) -> Tuple[str, str, str]:
         inst = item.get('installed', [])
         local = inst[0]['version'] if inst else "N/A"
         latest = item.get('versions', {}).get('stable', "Unknown")
-    return name, str(local), str(latest)
+    return name, str(local), str(latest), is_outdated
 
 def build_rows() -> List[Dict[str, Any]]:
     """Build data rows for the main table."""
@@ -135,7 +137,7 @@ def build_rows() -> List[Dict[str, Any]]:
 
     for cat, type_label in [('casks', 'cask'), ('formulae', 'formula')]:
         for item in installed_data.get(cat, []):
-            name, local, latest = parse_item(item, type_label)
+            name, local, latest, is_outdated = parse_item(item, type_label)
             
             beta_match = None
             for b in all_betas:
@@ -146,9 +148,7 @@ def build_rows() -> List[Dict[str, Any]]:
                         betas_to_lookup.append(b)
                         break
             
-            c_local = clean_version(local)
-            c_latest = clean_version(latest)
-            needs_update = c_local != c_latest and local != "N/A"
+            needs_update = is_outdated
             
             priority = 3
             if needs_update: priority = 1

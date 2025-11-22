@@ -214,42 +214,50 @@ def nuke_font_cache() -> None:
 # --- UI ---
 
 def show_dashboard() -> None:
-    """Display system dashboard."""
+    """Display system dashboard in a neofetch-style layout."""
     vitals = get_system_vitals()
     
-    grid = Table.grid(expand=True)
-    grid.add_column()
-    grid.add_column(justify="right")
+    # ASCII Art (Small Apple)
+    apple_logo = Text("""
+        .:'
+    __ :'__
+ .'`  `-'  ``.
+:          .-'
+:         :
+ :         `-;
+  `.__.-.__.'
+""", style="green bold")
+
+    # Info Grid
+    info_grid = Table.grid(padding=(0, 2))
+    info_grid.add_column(justify="right", style="bold cyan")
+    info_grid.add_column(justify="left")
+
+    # Add rows
+    info_grid.add_row("Model", str(vitals.get('model', 'Unknown')))
+    info_grid.add_row("Chip", str(vitals.get('chip', 'Unknown')))
+    info_grid.add_row("Memory", str(vitals.get('mem', 'Unknown')))
+    info_grid.add_row("Uptime", str(vitals.get('uptime', 'Unknown')))
     
-    # Left Panel: Specs
-    rows = []
-    rows.append(f"[bold]Model:[/] {vitals.get('model', 'Unknown')}")
-    rows.append(f"[bold]Chip:[/] {vitals.get('chip', 'Unknown')}")
-    rows.append(f"[bold]Memory:[/] {vitals.get('mem', 'Unknown')}")
-    rows.append(f"[bold]Uptime:[/] {vitals.get('uptime', 'Unknown')}")
-    
-    # Right Panel: Battery (if applicable)
-    batt_panel = None
     if vitals.get('is_laptop'):
+        info_grid.add_row("", "") # Spacer
+        
         health_color = "green"
         cond = str(vitals.get('battery_cond', '')).lower()
         if cond != "normal": health_color = "red"
         
-        batt_text = f"\n[bold underline]Battery Health[/]\n"
-        batt_text += f"Condition: [{health_color}]{vitals.get('battery_cond')}[/]\n"
-        batt_text += f"Cycle Count: {vitals.get('battery_cycle')}\n"
-        batt_text += f"Max Capacity: {vitals.get('battery_max')}\n"
-        batt_panel = Panel(batt_text, border_style="cyan")
-    
-    spec_text = "\n".join(rows)
-    
-    layout = Layout()
-    layout.split_row(
-        Layout(Panel(spec_text, title="System Specs", border_style="blue")),
-        Layout(batt_panel) if batt_panel else Layout(Panel("Desktop Mac\nNo Battery Data", border_style="dim"))
-    )
-    
-    console.print(layout)
+        info_grid.add_row("Battery", f"[{health_color}]{vitals.get('battery_cond')}[/]")
+        info_grid.add_row("Cycles", str(vitals.get('battery_cycle')))
+        if vitals.get('battery_max'):
+             info_grid.add_row("Capacity", str(vitals.get('battery_max')))
+
+    # Master Grid to hold Logo + Info
+    master_grid = Table.grid(padding=(0, 4))
+    master_grid.add_column()
+    master_grid.add_column(vertical="middle")
+    master_grid.add_row(apple_logo, info_grid)
+
+    console.print(master_grid)
 
 def main() -> None:
     """Main entry point."""

@@ -1,5 +1,6 @@
 import os
 import subprocess
+import plistlib
 from pathlib import Path
 from rich.console import Console
 from rich.table import Table
@@ -14,8 +15,13 @@ META = {
     "order": 4
 }
 
-def run():
-    """Lists User LaunchAgents (Apps that start at login)."""
+def run() -> None:
+    """
+    Lists User LaunchAgents (Apps that start at login).
+    
+    Scans standard LaunchAgent directories and parses .plist files
+    to determine if agents are loaded or disabled.
+    """
     console.clear()
     console.rule("[bold magenta]Startup & Launch Agent Auditor[/]")
     
@@ -36,16 +42,28 @@ def run():
         if p.exists():
             for item in p.iterdir():
                 if item.suffix == ".plist":
-                    # Basic check if enabled isn't trivial without launchctl parsing, 
-                    # so we list existence.
-                    table.add_row(item.name, label, "Installed")
+                    status = "Installed"
+                    try:
+                        with open(item, 'rb') as f:
+                            plist_data = plistlib.load(f)
+                            if plist_data.get('Disabled'):
+                                status = "[red]Disabled[/]"
+                            else:
+                                status = "[green]Enabled[/]"
+                    except Exception:
+                        status = "[yellow]Unreadable[/]"
+
+                    table.add_row(item.name, label, status)
                     found_count += 1
 
     console.print(table)
     console.print(f"\n[dim]Found {found_count} launch agents. To remove, delete the .plist file from the folder.[/]")
     
     if Confirm.ask("\nOpen User LaunchAgents folder in Finder?"):
-        subprocess.run(["open", os.path.expanduser("~/Library/LaunchAgents")])
+        try:
+            subprocess.run(["open", os.path.expanduser("~/Library/LaunchAgents")], check=True)
+        except subprocess.CalledProcessError as e:
+             console.print(f"[red]Failed to open Finder: {e}[/]")
     
     Prompt.ask("\n[bold]Press Enter to return to menu...[/]")
 

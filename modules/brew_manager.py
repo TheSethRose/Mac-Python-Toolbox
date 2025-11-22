@@ -4,6 +4,7 @@ import re
 import sys
 import shutil
 import argparse
+from typing import List, Dict, Any, Tuple, Set, Optional, Union
 from rich.console import Console
 from rich.table import Table
 from rich.text import Text
@@ -13,6 +14,10 @@ from rich.prompt import Confirm, Prompt
 
 # --- Configuration ---
 MAX_VER_WIDTH = 25  # Prevents massive version strings from breaking layout
+API_URL = "https://formulae.brew.sh/api/analytics/install/30d.json"
+BETA_REGEX = r"/(@|-)(beta|alpha|nightly|insider|preview|dev|next|canary|edge)/"
+BETA_MATCH_REGEX = r"^(@|-)(beta|alpha|nightly|insider|preview|dev|next|canary|edge)"
+
 console = Console()
 
 META = {
@@ -22,7 +27,7 @@ META = {
     "order": 1
 }
 
-def check_brew_installed():
+def check_brew_installed() -> bool:
     """Checks if Homebrew is installed and available in PATH."""
     if not shutil.which("brew"):
         console.print(Panel(
@@ -35,7 +40,18 @@ def check_brew_installed():
         return False
     return True
 
-def run_command(command, stream=False):
+def run_command(command: str, stream: bool = False) -> Union[str, int]:
+    """
+    Execute a shell command.
+
+    Args:
+        command: The command string to execute.
+        stream: If True, stream output to console (returns exit code).
+                If False, capture output (returns stdout string).
+
+    Returns:
+        Exit code (int) if stream=True, else stdout (str).
+    """
     if stream:
         return subprocess.call(command, shell=True)
     try:
@@ -43,34 +59,51 @@ def run_command(command, stream=False):
     except subprocess.CalledProcessError:
         return ""
 
-def clean_version(v):
+def clean_version(v: str) -> str:
+    """Remove build numbers/suffixes from version string."""
     if not v: return ""
     return re.sub(r'[_\-]\d+$', '', v)
 
-def truncate(text, limit):
+def truncate(text: Any, limit: int) -> str:
+    """Truncate text to limit characters."""
     text = str(text)
     if len(text) > limit:
         return text[:limit-1] + "…"
     return text
 
-def get_data():
+def get_data() -> Tuple[Dict[str, Any], Set[str]]:
+    """
+    Fetch installed packages and available beta versions.
+
+    Returns:
+        Tuple of (installed_data_dict, set_of_beta_names)
+    """
     with console.status("[bold green]Scanning Homebrew system..."):
         # 1. Get Installed
         raw_inst = run_command("brew info --json=v2 --installed")
-        try: installed_data = json.loads(raw_inst)
-        except: installed_data = {}
+        installed_data = {}
+        if isinstance(raw_inst, str):
+            try: 
+                installed_data = json.loads(raw_inst)
+            except json.JSONDecodeError: 
+                console.print("[red]Error parsing installed packages JSON.[/]")
+                installed_data = {}
 
         # 2. Get Betas
-        regex = "/(@|-)(beta|alpha|nightly|insider|preview|dev|next|canary|edge)/"
-        raw_search = run_command(f"brew search '{regex}'")
-        all_betas = set([x.strip() for x in raw_search.split('\n') if x.strip() and "==>" not in x])
+        raw_search = run_command(f"brew search '{BETA_REGEX}'")
+        all_betas = set()
+        if isinstance(raw_search, str):
+            all_betas = set([x.strip() for x in raw_search.split('\n') if x.strip() and "==>" not in x])
         
         return installed_data, all_betas
 
-def get_beta_metadata(beta_names):
+def get_beta_metadata(beta_names: List[str]) -> Dict[str, Any]:
+    """Fetch metadata for a list of beta packages."""
     if not beta_names: return {}
     cmd = f"brew info --json=v2 {' '.join(beta_names)}"
     raw = run_command(cmd)
+    if not isinstance(raw, str): return {}
+    
     try:
         data = json.loads(raw)
         lookup = {}
@@ -79,20 +112,23 @@ def get_beta_metadata(beta_names):
                 if item.get('token'): lookup[item.get('token')] = item
                 if item.get('name'): lookup[item.get('name')] = item
         return lookup
-    except: return {}
+    except json.JSONDecodeError: 
+        return {}
 
-def parse_item(item, item_type):
-    name = item.get('token') or item.get('name')
+def parse_item(item: Dict[str, Any], item_type: str) -> Tuple[str, str, str]:
+    """Extract name, local version, and latest version from item dict."""
+    name = item.get('token') or item.get('name') or "Unknown"
     if item_type == 'cask':
         local = item.get('installed', "N/A")
         latest = item.get('version', "Unknown")
     else: 
         inst = item.get('installed', [])
         local = inst[0]['version'] if inst else "N/A"
-        latest = item['versions']['stable']
+        latest = item.get('versions', {}).get('stable', "Unknown")
     return name, str(local), str(latest)
 
-def build_rows():
+def build_rows() -> List[Dict[str, Any]]:
+    """Build data rows for the main table."""
     installed_data, all_betas = get_data()
     rows = []
     betas_to_lookup = []
@@ -105,7 +141,7 @@ def build_rows():
             for b in all_betas:
                 if b.startswith(name):
                     rem = b[len(name):]
-                    if re.match(r"^(@|-)(beta|alpha|nightly|insider|preview|dev|next|canary|edge)", rem):
+                    if re.match(BETA_MATCH_REGEX, rem):
                         beta_match = b
                         betas_to_lookup.append(b)
                         break
@@ -140,7 +176,8 @@ def build_rows():
     rows.sort(key=lambda x: (x['priority'], x['name']))
     return rows
 
-def print_table(rows):
+def print_table(rows: List[Dict[str, Any]]) -> None:
+    """Render the package table."""
     table = Table(box=box.SIMPLE, expand=True)
     table.add_column("App Name", style="cyan", no_wrap=True)
     table.add_column("Type", style="magenta", width=8)
@@ -178,10 +215,11 @@ def print_table(rows):
     console.print(table)
     console.print(f"[yellow]Yellow[/] = Update Available  |  [green]Green[/] = Beta Alternative Available", style="italic dim")
 
-def get_top_packages_data(limit=10):
+def get_top_packages_data(limit: int = 10) -> List[Dict[str, Any]]:
+    """Fetch top installed packages from Homebrew analytics."""
     try:
         # Fetch analytics
-        cmd = "curl -s https://formulae.brew.sh/api/analytics/install/30d.json"
+        cmd = f"curl -s {API_URL}"
         raw_json = subprocess.check_output(cmd, shell=True, text=True)
         data = json.loads(raw_json)
         items = data.get("items", [])[:limit]
@@ -195,6 +233,8 @@ def get_top_packages_data(limit=10):
         # Fetch details
         cmd_info = f"brew info --json=v2 {' '.join(names)}"
         raw_info = run_command(cmd_info)
+        if not isinstance(raw_info, str): return []
+        
         info_data = json.loads(raw_info)
         
         results = []
@@ -213,7 +253,8 @@ def get_top_packages_data(limit=10):
         console.print(f"[red]Error fetching top packages: {e}[/]")
         return []
 
-def display_top_packages(data):
+def display_top_packages(data: List[Dict[str, Any]]) -> None:
+    """Display top packages table."""
     if not data: return
 
     table = Table(box=box.SIMPLE, expand=True, show_header=True)
@@ -229,7 +270,7 @@ def display_top_packages(data):
     console.print(table)
     console.print("")
 
-def search_packages():
+def search_packages() -> None:
     """Search menu: Search by name or browse top packages."""
     while True:
         console.clear()
@@ -247,7 +288,8 @@ def search_packages():
         else:
             break
 
-def do_search_by_name():
+def do_search_by_name() -> None:
+    """Execute search by name."""
     console.rule("[bold cyan]Search Homebrew[/]")
     query = Prompt.ask("Enter search term")
     if not query: return
@@ -255,7 +297,7 @@ def do_search_by_name():
     with console.status(f"Searching for '{query}'..."):
         result = run_command(f"brew search '{query}'")
     
-    if not result:
+    if not result or not isinstance(result, str):
         console.print("[yellow]No results found.[/]")
         Prompt.ask("Press Enter to continue...")
         return
@@ -285,7 +327,8 @@ def do_search_by_name():
         if 0 <= idx < len(clean_list):
             show_package_info(clean_list[idx])
 
-def do_browse_top():
+def do_browse_top() -> None:
+    """Execute browse top packages."""
     console.rule("[bold cyan]Top Homebrew Packages (30 Days)[/]")
     
     with console.status("Fetching analytics data..."):
@@ -321,7 +364,7 @@ def do_browse_top():
         console.print("[red]Invalid selection.[/]")
         Prompt.ask("Press Enter...")
 
-def show_package_info(package_name=None):
+def show_package_info(package_name: Optional[str] = None) -> None:
     """Show info for a specific package."""
     if not package_name:
         package_name = Prompt.ask("Enter package name to look up")
@@ -334,39 +377,42 @@ def show_package_info(package_name=None):
         raw_json = run_command(f"brew info --json=v2 {package_name}")
         
         try:
-            data = json.loads(raw_json)
-            found = False
-            
-            # Handle Formulae
-            for f in data.get("formulae", []):
-                found = True
-                console.print(Panel(
-                    f"[bold]Name:[/] {f['name']}\n"
-                    f"[bold]Desc:[/] {f['desc']}\n"
-                    f"[bold]Homepage:[/] {f['homepage']}\n"
-                    f"[bold]Version:[/] {f['versions']['stable']}\n"
-                    f"[bold]Installed:[/] {[i['version'] for i in f['installed']] if f['installed'] else 'No'}\n"
-                    f"[bold]License:[/] {f['license']}",
-                    title=f"Formula: {f['name']}",
-                    border_style="green"
-                ))
+            if isinstance(raw_json, str):
+                data = json.loads(raw_json)
+                found = False
+                
+                # Handle Formulae
+                for f in data.get("formulae", []):
+                    found = True
+                    console.print(Panel(
+                        f"[bold]Name:[/] {f['name']}\n"
+                        f"[bold]Desc:[/] {f['desc']}\n"
+                        f"[bold]Homepage:[/] {f['homepage']}\n"
+                        f"[bold]Version:[/] {f['versions']['stable']}\n"
+                        f"[bold]Installed:[/] {[i['version'] for i in f['installed']] if f['installed'] else 'No'}\n"
+                        f"[bold]License:[/] {f['license']}",
+                        title=f"Formula: {f['name']}",
+                        border_style="green"
+                    ))
 
-            # Handle Casks
-            for c in data.get("casks", []):
-                found = True
-                console.print(Panel(
-                    f"[bold]Name:[/] {c['token']}\n"
-                    f"[bold]Desc:[/] {c['desc']}\n"
-                    f"[bold]Homepage:[/] {c['homepage']}\n"
-                    f"[bold]Version:[/] {c['version']}\n"
-                    f"[bold]Installed:[/] {c.get('installed', 'No')}",
-                    title=f"Cask: {c['token']}",
-                    border_style="magenta"
-                ))
-            
-            if not found:
-                # Fallback to text output if JSON was empty but command didn't fail (rare)
-                console.print(run_command(f"brew info {package_name}"))
+                # Handle Casks
+                for c in data.get("casks", []):
+                    found = True
+                    console.print(Panel(
+                        f"[bold]Name:[/] {c['token']}\n"
+                        f"[bold]Desc:[/] {c['desc']}\n"
+                        f"[bold]Homepage:[/] {c['homepage']}\n"
+                        f"[bold]Version:[/] {c['version']}\n"
+                        f"[bold]Installed:[/] {c.get('installed', 'No')}",
+                        title=f"Cask: {c['token']}",
+                        border_style="magenta"
+                    ))
+                
+                if not found:
+                    # Fallback to text output if JSON was empty but command didn't fail (rare)
+                    console.print(run_command(f"brew info {package_name}"))
+            else:
+                console.print("[red]Failed to fetch info.[/]")
 
         except json.JSONDecodeError:
             # Fallback to raw text if JSON fails
@@ -376,7 +422,8 @@ def show_package_info(package_name=None):
 
 # --- AUTO PILOT LOGIC ---
 
-def audit_and_update():
+def audit_and_update() -> None:
+    """Run the main audit and update workflow."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--dry-run", action="store_true", help="Print command but do not run")
     # We need to handle args manually since we are in a module
@@ -443,7 +490,8 @@ def audit_and_update():
     
     Prompt.ask("\nPress Enter to return to menu...")
 
-def main():
+def main() -> None:
+    """Main entry point."""
     if not check_brew_installed():
         Prompt.ask("Press Enter to return...")
         return

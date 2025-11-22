@@ -12,21 +12,28 @@ META = {
     "order": 5
 }
 
-def run():
-    """Finds files larger than 1GB in Home Directory."""
+DEFAULT_SIZE_THRESHOLD = "1G"
+DEFAULT_LIMIT = 20
+
+def run() -> None:
+    """
+    Finds files larger than 1GB in Home Directory.
+    
+    Executes a shell command to find, sort, and display large files.
+    """
     console.clear()
     console.rule("[bold red]Large File Hunter (>1GB)[/]")
     console.print("[dim]Scanning home directory... (This uses 'find', may take a moment)[/]")
     
     # Using system 'find' is faster than python recursion for this
-    cmd = "find ~ -type f -size +1G -not -path '*/.*' -print0 | xargs -0 ls -lhS | head -n 20"
+    cmd = f"find ~ -type f -size +{DEFAULT_SIZE_THRESHOLD} -not -path '*/.*' -print0 | xargs -0 ls -lhS | head -n {DEFAULT_LIMIT}"
     
     try:
         # We run this via shell to utilize xargs/ls sorting
         result = subprocess.check_output(cmd, shell=True, text=True)
         
         if not result:
-            console.print("[green]No files larger than 1GB found![/]")
+            console.print(f"[green]No files larger than {DEFAULT_SIZE_THRESHOLD} found![/]")
         else:
             console.print(Panel(result, title="Largest Files", border_style="red"))
             console.print("[yellow]Tip: To delete, use 'rm <path>' in terminal or open directory.[/]")
